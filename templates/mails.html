@@ -1,0 +1,28 @@
+{% if mails %}
+<div class="space-y-2">
+    {% for mail in mails %}
+    <div onclick="viewMail('{{ mail.id }}')" 
+         class="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-xl p-5 cursor-pointer transition-all">
+        <div class="flex justify-between items-start">
+            <div>
+                <p class="font-medium text-white">{{ mail.subject }}</p>
+                <p class="text-sm text-gray-400 mt-1">{{ mail.date }}</p>
+            </div>
+            <i class="fas fa-chevron-right text-gray-500 mt-1"></i>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-gray-400">Henüz mail bulunamadı.</p>
+{% endif %}
+
+<script>
+function viewMail(mailId) {
+    fetch(`/view-mail/${mailId}`)
+        .then(response => response.text())
+        .then(html => {
+            document.getElementById("mail-viewer").innerHTML = html;
+        });
+}
+</script>

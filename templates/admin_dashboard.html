@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>FikoHouse Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body class="bg-gray-950 text-white">
+    <div class="max-w-6xl mx-auto p-8">
+        <div class="flex justify-between items-center mb-10">
+            <h1 class="text-4xl font-bold text-emerald-500">FikoHouse Admin Panel</h1>
+            <a href="/" class="text-gray-400 hover:text-white">← Ana Sayfaya Dön</a>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Managed Emails -->
+            <div class="bg-gray-900 rounded-3xl p-8">
+                <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+                    <i class="fas fa-envelope"></i> Yönetilen Mailler
+                </h2>
+                <div class="space-y-4">
+                    {% for email in emails %}
+                    <div class="bg-gray-800 p-4 rounded-2xl">
+                        <p class="font-medium">{{ email.email_address }}</p>
+                        <p class="text-xs text-gray-500">{{ email.imap_server }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="text-sm text-gray-500 mt-6">* Yeni mail ekleme özelliği yakında eklenecek</p>
+            </div>
+
+            <!-- Subjects -->
+            <div class="bg-gray-900 rounded-3xl p-8">
+                <h2 class="text-2xl font-semibold mb-6 flex items-center gap-3">
+                    <i class="fas fa-language"></i> Netflix Konuları (Subjects)
+                </h2>
+                <div class="space-y-3 text-sm">
+                    {% for subject in subjects %}
+                    <div class="bg-gray-800 p-4 rounded-2xl">
+                        <span class="text-emerald-400">{{ subject.language }}</span> : 
+                        <span class="text-gray-300">"{{ subject.subject_text }}"</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <p class="text-sm text-gray-500 mt-6">* Farklı dillerdeki Netflix subject'leri buradan yönetebilirsiniz (yakında tam CRUD eklenecek)</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

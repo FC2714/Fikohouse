@@ -1,0 +1,22 @@
+<div class="bg-gray-800 rounded-2xl p-6">
+    <h3 class="text-xl font-semibold mb-2">{{ mail.subject }}</h3>
+    <p class="text-gray-400 text-sm mb-6">{{ mail.date }}</p>
+    
+    <div class="bg-gray-900 p-5 rounded-xl mb-8 max-h-96 overflow-auto prose prose-invert">
+        {{ mail.body | safe }}
+    </div>
+
+    {% if mail.confirm_link %}
+    <a href="{{ mail.confirm_link }}" target="_blank"
+       class="block w-full bg-green-600 hover:bg-green-700 text-center py-4 rounded-2xl font-semibold text-lg flex items-center justify-center gap-3">
+        <i class="fas fa-check-circle"></i>
+        Netflix Household Onayla (Linki Aç)
+    </a>
+    <p class="text-center text-xs text-gray-500 mt-3">Netflix resmi doğrulama linki otomatik tespit edildi</p>
+    {% else %}
+    <div class="bg-amber-900 border border-amber-700 rounded-2xl p-6 text-center">
+        <p class="text-amber-400">Bu mailde otomatik doğrulama linki bulunamadı.</p>
+        <p class="text-sm text-gray-400 mt-2">Maili manuel olarak kontrol edin.</p>
+    </div>
+    {% endif %}
+</div>
