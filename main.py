@@ -157,11 +157,14 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail_ids_set = set()
         for subject in subjects:
             try:
+                logger.info(f"Searching for subject: {subject.subject_text}")
                 _, data = mail.search(None, f'SUBJECT "{subject.subject_text}"')
+                found_count = len(data[0].split()) if data[0] else 0
+                logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 if data[0]:
                     mail_ids_set.update(data[0].split())
-            except:
-                pass  # Skip subjects that cause search errors
+            except Exception as e:
+                logger.error(f"Error searching for subject '{subject.subject_text}': {e}")
 
         mail_ids = sorted(list(mail_ids_set), key=lambda x: int(x), reverse=True)[:10]
 
