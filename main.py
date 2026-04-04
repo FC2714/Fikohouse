@@ -163,11 +163,13 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         for subject in subjects:
             try:
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                # imapclient handles UTF-8 properly with explicit charset
-                mail_ids = mail.search(['SUBJECT', subject.subject_text], charset='UTF-8')
-                found_count = len(mail_ids)
+                # Use string-based search format with UTF-8 encoding
+                search_str = f'SUBJECT "{subject.subject_text}"'
+                mail_ids = mail.search(search_str, charset='UTF-8')
+                found_count = len(mail_ids) if mail_ids else 0
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
-                mail_ids_set.update(mail_ids)
+                if mail_ids:
+                    mail_ids_set.update(mail_ids)
             except Exception as e:
                 logger.error(f"Error searching for subject: {e}", exc_info=True)
 
