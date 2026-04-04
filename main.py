@@ -176,29 +176,35 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             except Exception as e:
                 logger.error(f"Error searching for subject: {e}", exc_info=True)
 
-        # Fetch matching emails and sort by date (newest first)
+        # Batch fetch all matching emails (much faster than one-by-one)
         mails_with_dates = []
-        for mid in mail_ids_set:
+        if mail_ids_set:
             try:
-                msg_data = mail.fetch(mid, ['RFC822'])
-                msg = email.message_from_bytes(msg_data[mid][b'RFC822'])
-
-                # Parse email date for proper sorting
-                date_str = msg.get("Date", "")
-                try:
-                    date = parsedate_to_datetime(date_str)
-                except:
-                    date = datetime.min
-
-                mails_with_dates.append((mid, date, msg))
+                # Fetch all emails in a single batch request
+                all_msg_data = mail.fetch(list(mail_ids_set), ['RFC822', 'INTERNALDATE'])
+                for mid, data in all_msg_data.items():
+                    try:
+                        msg = email.message_from_bytes(data[b'RFC822'])
+                        # Use INTERNALDATE (server-side date) for reliable sorting
+                        date = data.get(b'INTERNALDATE', datetime.min)
+                        if not isinstance(date, datetime):
+                            date_str = msg.get("Date", "")
+                            try:
+                                date = parsedate_to_datetime(date_str)
+                            except:
+                                date = datetime.min
+                        mails_with_dates.append((mid, date, msg))
+                    except Exception as e:
+                        logger.error(f"Error parsing email {mid}: {e}")
             except Exception as e:
-                logger.error(f"Error fetching email {mid}: {e}")
+                logger.error(f"Error batch fetching emails: {e}")
 
-        # Sort by date, most recent first, and take top 10
+        # Sort by date, most recent first (newest at top)
         mails_with_dates.sort(key=lambda x: x[1], reverse=True)
 
         mails_html = ""
-        for mid, date, msg in mails_with_dates[:10]:
+        displayed_count = 0
+        for mid, date, msg in mails_with_dates:
             subject = decode_header(msg["Subject"])[0][0]
             if isinstance(subject, bytes):
                 subject = subject.decode()
@@ -236,6 +242,9 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 
             link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
 
+            # Format date for display
+            date_display = date.strftime("%Y-%m-%d %H:%M") if isinstance(date, datetime) and date != datetime.min else msg.get("Date", "")[:16]
+
             mails_html += f"""
             <div class="bg-gradient-to-r from-gray-800 to-gray-700 rounded-2xl p-6 mb-4 shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-700 hover:border-emerald-500">
                 <div class="flex justify-between items-center gap-6">
@@ -244,13 +253,17 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
                             <span class="inline-block bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-lg text-xs font-semibold">📧 Netflix</span>
                         </div>
                         <p class="font-semibold text-lg text-white mb-1">{subject}</p>
-                        <p class="text-sm text-gray-400">📅 {msg.get("Date", "")[:16]}</p>
+                        <p class="text-sm text-gray-400">📅 {date_display}</p>
                     </div>
                     <div class="flex-shrink-0">
                         {link_html}
                     </div>
                 </div>
             </div>"""
+
+            displayed_count += 1
+            if displayed_count >= 10:
+                break
 
         mail.logout()
 
