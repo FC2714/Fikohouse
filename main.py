@@ -203,9 +203,19 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             soup = BeautifulSoup(body, "lxml")
             confirm_link = None
             for a in soup.find_all("a", href=True):
-                if "netflix.com" in a["href"].lower() and ("household" in a["href"].lower() or "confirm" in a["href"].lower()):
-                    confirm_link = a["href"]
-                    break
+                href_lower = a["href"].lower()
+                if "netflix.com" in href_lower:
+                    # Look for various Netflix verification/confirmation patterns
+                    if any(keyword in href_lower for keyword in ["household", "confirm", "verify", "activate", "code", "validate"]):
+                        confirm_link = a["href"]
+                        break
+
+            # If no specific keywords found, accept any netflix.com link as fallback
+            if not confirm_link:
+                for a in soup.find_all("a", href=True):
+                    if "netflix.com" in a["href"].lower():
+                        confirm_link = a["href"]
+                        break
 
             link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
 
