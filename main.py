@@ -134,6 +134,12 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail.login(managed.email_address, app_pass)
         mail.select_folder(b'INBOX')
 
+        # Populate capabilities cache to avoid issues with UTF-8 searches
+        try:
+            mail.capabilities()
+        except:
+            pass
+
         # Build dynamic search query from database subjects
         subjects = db.query(Subject).all()
         if not subjects:
