@@ -134,11 +134,9 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail.login(managed.email_address, app_pass)
         mail.select_folder(b'INBOX')
 
-        # Populate capabilities cache to avoid issues with UTF-8 searches
-        try:
-            mail.capabilities()
-        except:
-            pass
+        # Ensure capabilities are available for proper charset handling
+        if mail._cached_capabilities is None:
+            mail._cached_capabilities = mail.capabilities()
 
         # Build dynamic search query from database subjects
         subjects = db.query(Subject).all()
@@ -169,8 +167,8 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         for subject in subjects:
             try:
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                # Use list-based search format - imapclient handles encoding automatically
-                mail_ids = mail.search(['SUBJECT', subject.subject_text])
+                # Explicitly pass charset='UTF-8' to handle German characters
+                mail_ids = mail.search(['SUBJECT', subject.subject_text], charset='UTF-8')
                 found_count = len(mail_ids) if mail_ids else 0
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 if mail_ids:
