@@ -17,7 +17,11 @@ from translations import get_t, validate_lang, language_selector_html, language_
 from config import settings
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    encoding='utf-8'
+)
 logger = logging.getLogger(__name__)
 
 # Initialize Fernet encryption
@@ -165,7 +169,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 mail_ids_set.update(mail_ids)
             except Exception as e:
-                logger.error(f"Error searching for subject '{subject.subject_text}': {e}")
+                logger.error(f"Error searching for subject: {e}", exc_info=True)
 
         mail_ids = sorted(list(mail_ids_set), reverse=True)[:10]
 
