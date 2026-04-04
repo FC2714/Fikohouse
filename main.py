@@ -169,9 +169,8 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         for subject in subjects:
             try:
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                # Use string-based search format with UTF-8 encoding
-                search_str = f'SUBJECT "{subject.subject_text}"'
-                mail_ids = mail.search(search_str, charset='UTF-8')
+                # Use list-based search format - imapclient handles encoding automatically
+                mail_ids = mail.search(['SUBJECT', subject.subject_text])
                 found_count = len(mail_ids) if mail_ids else 0
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 if mail_ids:
