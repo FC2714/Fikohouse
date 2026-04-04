@@ -242,16 +242,15 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 
             link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
 
-            # Format date for display - convert to Baku timezone (UTC+4)
+            # Store UTC timestamp for JavaScript to convert to user's local timezone
             date_str = msg.get("Date", "")
             try:
                 email_date = parsedate_to_datetime(date_str)
-                # Convert to Baku timezone (UTC+4)
-                baku_tz = timezone(timedelta(hours=4))
-                baku_date = email_date.astimezone(baku_tz)
-                date_display = baku_date.strftime("%Y-%m-%d %H:%M")
+                # Convert to UTC and format as ISO for JavaScript
+                utc_date = email_date.astimezone(timezone.utc)
+                date_iso = utc_date.strftime("%Y-%m-%dT%H:%M:%SZ")
             except:
-                date_display = date_str[:16] if date_str else "Unknown"
+                date_iso = ""
 
             mails_html += f"""
             <div class="bg-gradient-to-r from-gray-800 to-gray-700 rounded-2xl p-6 mb-4 shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-700 hover:border-emerald-500">
@@ -261,7 +260,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
                             <span class="inline-block bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-lg text-xs font-semibold">📧 Netflix</span>
                         </div>
                         <p class="font-semibold text-lg text-white mb-1">{subject}</p>
-                        <p class="text-sm text-gray-400">📅 {date_display}</p>
+                        <p class="text-sm text-gray-400">📅 <span class="local-time" data-utc="{date_iso}">{date_iso[:16].replace('T', ' ') if date_iso else 'Unknown'}</span></p>
                     </div>
                     <div class="flex-shrink-0">
                         {link_html}
@@ -311,6 +310,20 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
                     </a>
                 </div>
             </div>
+            <script>
+                document.querySelectorAll('.local-time').forEach(el => {{
+                    const utc = el.dataset.utc;
+                    if (utc) {{
+                        const date = new Date(utc);
+                        const formatted = date.getFullYear() + '-' + 
+                            String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+                            String(date.getDate()).padStart(2, '0') + ' ' + 
+                            String(date.getHours()).padStart(2, '0') + ':' + 
+                            String(date.getMinutes()).padStart(2, '0');
+                        el.textContent = formatted;
+                    }}
+                }});
+            </script>
         </body>
         </html>
         """
