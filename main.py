@@ -8,7 +8,7 @@ import email
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import logging
 
@@ -242,11 +242,14 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 
             link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
 
-            # Format date for display - use original email Date header (has correct timezone)
+            # Format date for display - convert to Baku timezone (UTC+4)
             date_str = msg.get("Date", "")
             try:
                 email_date = parsedate_to_datetime(date_str)
-                date_display = email_date.strftime("%Y-%m-%d %H:%M")
+                # Convert to Baku timezone (UTC+4)
+                baku_tz = timezone(timedelta(hours=4))
+                baku_date = email_date.astimezone(baku_tz)
+                date_display = baku_date.strftime("%Y-%m-%d %H:%M")
             except:
                 date_display = date_str[:16] if date_str else "Unknown"
 
