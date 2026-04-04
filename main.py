@@ -158,9 +158,8 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         for subject in subjects:
             try:
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                # Encode search query with UTF-8 to handle special characters
-                search_query = f'SUBJECT "{subject.subject_text}"'.encode('utf-8')
-                _, data = mail.search(None, search_query)
+                # Use proper IMAP encoding for non-ASCII characters
+                _, data = mail.search('UTF-8', 'SUBJECT', subject.subject_text)
                 found_count = len(data[0].split()) if data[0] else 0
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 if data[0]:
