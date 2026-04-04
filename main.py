@@ -3,7 +3,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from cryptography.fernet import Fernet
-import imaplib, email
+from imapclient import IMAPClient
+import email
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
@@ -125,9 +126,9 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 
     try:
         app_pass = fernet.decrypt(managed.app_password_encrypted.encode()).decode()
-        mail = imaplib.IMAP4_SSL(managed.imap_server)
+        mail = IMAPClient(managed.imap_server, ssl=True)
         mail.login(managed.email_address, app_pass)
-        mail.select("INBOX")
+        mail.select_folder(b'INBOX')
 
         # Build dynamic search query from database subjects
         subjects = db.query(Subject).all()
@@ -157,27 +158,21 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail_ids_set = set()
         for subject in subjects:
             try:
-                # Skip non-ASCII subjects - IMAP protocol limitation
-                is_ascii = all(ord(c) < 128 for c in subject.subject_text)
-                if not is_ascii:
-                    logger.warning(f"Skipping non-ASCII subject (IMAP protocol limitation): {subject.subject_text}")
-                    continue
-
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                _, data = mail.search(None, f'SUBJECT "{subject.subject_text}"')
-                found_count = len(data[0].split()) if data[0] else 0
+                # imapclient handles UTF-8 properly
+                mail_ids = mail.search(['SUBJECT', subject.subject_text])
+                found_count = len(mail_ids)
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
-                if data[0]:
-                    mail_ids_set.update(data[0].split())
+                mail_ids_set.update(mail_ids)
             except Exception as e:
                 logger.error(f"Error searching for subject '{subject.subject_text}': {e}")
 
-        mail_ids = sorted(list(mail_ids_set), key=lambda x: int(x), reverse=True)[:10]
+        mail_ids = sorted(list(mail_ids_set), reverse=True)[:10]
 
         mails_html = ""
         for mid in mail_ids:
-            _, msg_data = mail.fetch(mid, "(RFC822)")
-            msg = email.message_from_bytes(msg_data[0][1])
+            msg_data = mail.fetch(mid, ['RFC822'])
+            msg = email.message_from_bytes(msg_data[mid][b'RFC822'])
             subject = decode_header(msg["Subject"])[0][0]
             if isinstance(subject, bytes):
                 subject = subject.decode()

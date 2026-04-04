@@ -7,3 +7,4 @@ beautifulsoup4==4.12.2
 lxml==4.9.3
 psycopg2-binary==2.9.9
 python-multipart==0.0.6
+imapclient==3.0.1
