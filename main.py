@@ -157,9 +157,14 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail_ids_set = set()
         for subject in subjects:
             try:
+                # Skip non-ASCII subjects - IMAP protocol limitation
+                is_ascii = all(ord(c) < 128 for c in subject.subject_text)
+                if not is_ascii:
+                    logger.warning(f"Skipping non-ASCII subject (IMAP protocol limitation): {subject.subject_text}")
+                    continue
+
                 logger.info(f"Searching for subject: {subject.subject_text}")
-                # Use proper IMAP encoding for non-ASCII characters
-                _, data = mail.search('UTF-8', 'SUBJECT', subject.subject_text)
+                _, data = mail.search(None, f'SUBJECT "{subject.subject_text}"')
                 found_count = len(data[0].split()) if data[0] else 0
                 logger.info(f"Found {found_count} emails for subject: {subject.subject_text}")
                 if data[0]:
