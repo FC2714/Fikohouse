@@ -176,9 +176,12 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             except Exception as e:
                 logger.error(f"Error searching for subject: {e}", exc_info=True)
 
-        # Fetch all emails and sort by date (newest first)
+        # Sort mail IDs (highest IDs are typically more recent) and take a reasonable subset
+        sorted_mail_ids = sorted(list(mail_ids_set), reverse=True)[:50]
+
+        # Fetch emails and sort by date (newest first)
         mails_with_dates = []
-        for mid in mail_ids_set:
+        for mid in sorted_mail_ids:
             try:
                 msg_data = mail.fetch(mid, ['RFC822'])
                 msg = email.message_from_bytes(msg_data[mid][b'RFC822'])
