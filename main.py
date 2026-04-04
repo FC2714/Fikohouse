@@ -130,7 +130,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         mail.select("INBOX")
 
         # Build dynamic search query from database subjects
-        subjects = db.query(Subject).filter(Subject.active == True).all()
+        subjects = db.query(Subject).all()
         if not subjects:
             return f"""
             <!DOCTYPE html>
