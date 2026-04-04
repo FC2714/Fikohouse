@@ -242,8 +242,13 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 
             link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
 
-            # Format date for display
-            date_display = date.strftime("%Y-%m-%d %H:%M") if isinstance(date, datetime) and date != datetime.min else msg.get("Date", "")[:16]
+            # Format date for display - use original email Date header (has correct timezone)
+            date_str = msg.get("Date", "")
+            try:
+                email_date = parsedate_to_datetime(date_str)
+                date_display = email_date.strftime("%Y-%m-%d %H:%M")
+            except:
+                date_display = date_str[:16] if date_str else "Unknown"
 
             mails_html += f"""
             <div class="bg-gradient-to-r from-gray-800 to-gray-700 rounded-2xl p-6 mb-4 shadow-lg hover:shadow-2xl transition-all duration-300 border border-gray-700 hover:border-emerald-500">
