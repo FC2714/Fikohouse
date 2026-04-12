@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import secrets
 import logging
+import html
 
 from models import SessionLocal, ManagedEmail, Subject
 from translations import get_t, validate_lang, language_selector_html, language_selector_html_post
@@ -207,12 +208,17 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         for mid, date, msg in mails_with_dates:
             subject = decode_header(msg["Subject"])[0][0]
             if isinstance(subject, bytes):
-                subject = subject.decode()
-
-            # Skip confirmation messages
+                subject = subject.decode(errors='ignore')
+            # Ensure subject is a string
+            subject = str(subject) if subject else ""
+            
+            # Skip confirmation messages (check before HTML escaping)
             lower_subject = subject.lower()
             if any(word in lower_subject for word in ["bestätigung", "wurde bestätigt", "confirmed", "success", "erfolgreich"]):
                 continue
+            
+            # Escape HTML special characters for safe display
+            subject = html.escape(subject)
 
             body = ""
             if msg.is_multipart():
