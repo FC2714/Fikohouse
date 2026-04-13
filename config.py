@@ -3,7 +3,6 @@ Configuration management for FikoHouse application
 Handles environment variables, defaults, and validation
 """
 import os
-import secrets
 import warnings
 from functools import lru_cache
 from dotenv import load_dotenv
@@ -45,7 +44,7 @@ class Settings:
         FERNET_KEY = _FERNET_KEY_RAW.encode()
         try:
             Fernet(FERNET_KEY)
-        except Exception as exc:
+        except (ValueError, TypeError) as exc:
             if ENVIRONMENT.lower() == "production":
                 raise ValueError(
                     "FERNET_KEY environment variable is invalid. "
@@ -72,16 +71,11 @@ class Settings:
                 "Set a strong, unique admin password in your environment."
             )
         warnings.warn(
-            "ADMIN_PASSWORD is missing/placeholder in development; using a temporary password for this process.",
+            "ADMIN_PASSWORD is missing/placeholder in development; admin login is disabled until ADMIN_PASSWORD is set.",
             RuntimeWarning,
             stacklevel=2
         )
-        ADMIN_PASSWORD = secrets.token_urlsafe(24)
-        warnings.warn(
-            f"Temporary development admin password generated: {ADMIN_PASSWORD}",
-            RuntimeWarning,
-            stacklevel=2
-        )
+        ADMIN_PASSWORD = "__disabled_until_configured__"
 
     # Server
     HOST = os.getenv("HOST", "0.0.0.0")
