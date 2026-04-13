@@ -43,6 +43,7 @@ class Settings:
     else:
         FERNET_KEY = _FERNET_KEY_RAW.encode()
         try:
+            # Validate key format early. The app uses its own Fernet instance in main.py.
             Fernet(FERNET_KEY)
         except (ValueError, TypeError) as exc:
             if ENVIRONMENT.lower() == "production":
@@ -75,7 +76,7 @@ class Settings:
             RuntimeWarning,
             stacklevel=2
         )
-        ADMIN_PASSWORD = "__disabled_until_configured__"
+        ADMIN_PASSWORD = None
 
     # Server
     HOST = os.getenv("HOST", "0.0.0.0")
