@@ -103,7 +103,7 @@ From the admin dashboard you can:
 
 ## Security Notes
 
-- Change the default `ADMIN_PASSWORD` before deploying to production.
+- Set a strong, unique `ADMIN_PASSWORD` before deploying to production.
 - Generate a strong `FERNET_KEY` and `SECRET_KEY` for production.
 - Set `CORS_ALLOW_ORIGINS` to your own trusted domain(s) in production.
 - Use PostgreSQL instead of SQLite in production for reliability and concurrency.
