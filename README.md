@@ -46,7 +46,7 @@ cp .env.example .env
 | `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///./fikohouse.db` |
 | `FERNET_KEY` | Fernet encryption key for app passwords | *(required)* |
 | `SECRET_KEY` | Secret key for session management | `dev-secret-key-change-in-production` |
-| `ADMIN_PASSWORD` | Admin panel password | `Fiko070House!` |
+| `ADMIN_PASSWORD` | Admin panel password | *(required — set a strong password)* |
 | `ENVIRONMENT` | `development` or `production` | `development` |
 | `DEBUG` | Enable debug logging | `true` |
 | `HOST` | Bind address | `0.0.0.0` |
