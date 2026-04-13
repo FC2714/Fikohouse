@@ -12,6 +12,8 @@ from datetime import datetime, timedelta, timezone
 import secrets
 import logging
 import html
+from threading import Lock
+from typing import Set
 
 from models import SessionLocal, ManagedEmail, Subject
 from translations import get_t, validate_lang, language_selector_html, language_selector_html_post
@@ -33,6 +35,20 @@ except Exception as e:
     raise
 
 app = FastAPI(title="FikoHouse")
+
+# In-memory store for valid admin session tokens.
+# NOTE: Sessions are lost on application restart and are not shared across
+# multiple instances. For multi-instance deployments use a shared store such
+# as Redis or a database-backed session table.
+_admin_sessions: Set[str] = set()
+_admin_sessions_lock = Lock()
+
+
+def _is_valid_admin_session(request: Request) -> bool:
+    """Return True only if the request carries a recognised admin session token."""
+    token = request.cookies.get("admin_session", "")
+    with _admin_sessions_lock:
+        return bool(token) and token in _admin_sessions
 
 # Add CORS middleware for security
 app.add_middleware(
@@ -335,6 +351,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
         """
 
     except Exception as e:
+        logger.error(f"Error loading mails for {email_input}: {e}", exc_info=True)
         return f"""
         <!DOCTYPE html>
         <html lang="{lang}">
@@ -348,7 +365,6 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             <div class="max-w-2xl mx-auto text-center px-4">
                 <div class="text-6xl mb-4">❌</div>
                 <h1 class="text-4xl font-bold text-red-500 mb-4">{t('load_mails_error_connection')}</h1>
-                <p class="text-gray-400 text-lg mb-8 break-all">{str(e)}</p>
                 <a href="/?lang={lang}" class="inline-block bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-8 rounded-2xl">
                     ← {t('load_mails_back')}
                 </a>
@@ -392,8 +408,11 @@ async def admin_login(username: str = Form(...), password: str = Form(...), lang
     t = get_t(lang)
 
     if username == "admin" and password == settings.ADMIN_PASSWORD:
+        token = secrets.token_hex(32)
+        with _admin_sessions_lock:
+            _admin_sessions.add(token)
         response = RedirectResponse(url=f"/admin/dashboard?lang={lang}", status_code=302)
-        response.set_cookie(key="admin_session", value=secrets.token_hex(16), max_age=86400, httponly=True, samesite="strict")
+        response.set_cookie(key="admin_session", value=token, max_age=86400, httponly=True, samesite="strict")
         return response
 
     return f"""
@@ -423,7 +442,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
     t = get_t(lang)
 
     # Check if admin is logged in
-    if "admin_session" not in request.cookies:
+    if not _is_valid_admin_session(request):
         return f"""
         <!DOCTYPE html>
         <html lang="{lang}">
@@ -530,7 +549,7 @@ async def add_email(request: Request, email_address: str = Form(...), imap_serve
     t = get_t(lang)
 
     # Check authentication
-    if "admin_session" not in request.cookies:
+    if not _is_valid_admin_session(request):
         return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
 
     try:
@@ -578,7 +597,7 @@ async def add_subject(request: Request, language: str = Form(...), subject_text:
     t = get_t(lang)
 
     # Check authentication
-    if "admin_session" not in request.cookies:
+    if not _is_valid_admin_session(request):
         return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
 
     new_subject = Subject(language=language, subject_text=subject_text)
@@ -607,7 +626,7 @@ async def delete_email(request: Request, email_id: int, lang: str = Form('en'), 
     t = get_t(lang)
 
     # Check authentication
-    if "admin_session" not in request.cookies:
+    if not _is_valid_admin_session(request):
         return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
 
     email = db.query(ManagedEmail).filter(ManagedEmail.id == email_id).first()
@@ -638,7 +657,7 @@ async def delete_subject(request: Request, subject_id: int, lang: str = Form('en
     t = get_t(lang)
 
     # Check authentication
-    if "admin_session" not in request.cookies:
+    if not _is_valid_admin_session(request):
         return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
 
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
@@ -664,8 +683,11 @@ async def delete_subject(request: Request, subject_id: int, lang: str = Form('en
     """
 
 @app.get("/admin/logout")
-async def logout(lang: str = 'en'):
+async def logout(request: Request, lang: str = 'en'):
     lang = validate_lang(lang)
+    token = request.cookies.get("admin_session", "")
+    with _admin_sessions_lock:
+        _admin_sessions.discard(token)
     response = RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
     response.delete_cookie(key="admin_session", httponly=True, samesite="strict")
     return response
