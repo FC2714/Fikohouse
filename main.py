@@ -47,7 +47,7 @@ app = FastAPI(title="FikoHouse")
 # remains in this dict are also rejected because expiry is checked explicitly.
 SESSION_TTL = 86400  # 24 hours in seconds
 _admin_sessions: Dict[str, float] = {}  # token -> expiry timestamp
-_admin_csrf_tokens: Dict[str, str] = {}  # token -> csrf token
+_admin_csrf_tokens: Dict[str, str] = {}  # session_token -> csrf_token
 _admin_sessions_lock = Lock()
 
 
@@ -84,8 +84,11 @@ def _is_allowed_netflix_link(url: str) -> bool:
         parsed = urlparse(url)
         if parsed.scheme != "https":
             return False
-        host = (parsed.hostname or "").lower()
-        return host == "netflix.com" or host.endswith(".netflix.com")
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            return False
+        ascii_host = host.encode("idna").decode("ascii")
+        return ascii_host == "netflix.com" or ascii_host.endswith(".netflix.com")
     except Exception:
         return False
 
@@ -114,7 +117,7 @@ async def health_check():
 # ===================== PUBLIC HOMEPAGE =====================
 @app.get("/", response_class=HTMLResponse)
 async def home(lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     return f"""
@@ -158,7 +161,7 @@ async def home(lang: str = 'en'):
 # ===================== FIXED MAIL FETCHING =====================
 @app.post("/load-mails", response_class=HTMLResponse)
 async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     managed = db.query(ManagedEmail).filter(ManagedEmail.email_address == email_input.strip()).first()
@@ -301,6 +304,8 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
                         confirm_link = a["href"]
                         break
 
+            if confirm_link and not _is_allowed_netflix_link(confirm_link):
+                confirm_link = None
             link_html = (
                 f'<a href="{html.escape(confirm_link, quote=True)}" target="_blank" rel="noopener noreferrer" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>'
                 if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
@@ -418,7 +423,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 # ===================== FULL ADMIN DASHBOARD =====================
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     return f"""
@@ -446,7 +451,7 @@ async def admin_page(lang: str = 'en'):
 
 @app.post("/admin/login", response_class=HTMLResponse)
 async def admin_login(request: Request, username: str = Form(...), password: str = Form(...), lang: str = Form('en')):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     if username == "admin" and password == settings.ADMIN_PASSWORD:
@@ -455,7 +460,7 @@ async def admin_login(request: Request, username: str = Form(...), password: str
         with _admin_sessions_lock:
             _admin_sessions[token] = time.time() + SESSION_TTL
             _admin_csrf_tokens[token] = csrf_token
-        response = RedirectResponse(url=f"/admin/dashboard?lang={lang}", status_code=302)
+        response = RedirectResponse(url="/admin/dashboard", status_code=302)
         response.set_cookie(
             key="admin_session",
             value=token,
@@ -489,7 +494,7 @@ async def admin_login(request: Request, username: str = Form(...), password: str
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check if admin is logged in
@@ -601,14 +606,14 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
 # Add & Delete routes
 @app.post("/admin/add-email", response_class=HTMLResponse)
 async def add_email(request: Request, email_address: str = Form(...), imap_server: str = Form(...), app_password: str = Form(...), csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
     if not _validate_admin_csrf(request, csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         encrypted = fernet.encrypt(app_password.encode()).decode()
@@ -651,14 +656,14 @@ async def add_email(request: Request, email_address: str = Form(...), imap_serve
 
 @app.post("/admin/add-subject", response_class=HTMLResponse)
 async def add_subject(request: Request, language: str = Form(...), subject_text: str = Form(...), csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
     if not _validate_admin_csrf(request, csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     new_subject = Subject(language=language, subject_text=subject_text)
     db.add(new_subject)
@@ -682,14 +687,14 @@ async def add_subject(request: Request, language: str = Form(...), subject_text:
 
 @app.post("/admin/delete-email/{email_id}", response_class=HTMLResponse)
 async def delete_email(request: Request, email_id: int, csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
     if not _validate_admin_csrf(request, csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     email = db.query(ManagedEmail).filter(ManagedEmail.id == email_id).first()
     if email:
@@ -715,14 +720,14 @@ async def delete_email(request: Request, email_id: int, csrf_token: str = Form('
 
 @app.post("/admin/delete-subject/{subject_id}", response_class=HTMLResponse)
 async def delete_subject(request: Request, subject_id: int, csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
     if not _validate_admin_csrf(request, csrf_token):
-        raise HTTPException(status_code=403, detail="Invalid CSRF token")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if subject:
@@ -748,12 +753,12 @@ async def delete_subject(request: Request, subject_id: int, csrf_token: str = Fo
 
 @app.get("/admin/logout")
 async def logout(request: Request, lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     token = request.cookies.get("admin_session", "")
     with _admin_sessions_lock:
         _admin_sessions.pop(token, None)
         _admin_csrf_tokens.pop(token, None)
-    response = RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+    response = RedirectResponse(url="/admin", status_code=302)
     response.delete_cookie(key="admin_session", httponly=True, samesite="strict", secure=settings.is_production)
     return response
 

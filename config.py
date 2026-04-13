@@ -36,7 +36,7 @@ class Settings:
         ""
     )
     if not SECRET_KEY:
-        raise ValueError("SECRET_KEY environment variable is required.")
+        raise ValueError("SECRET_KEY environment variable is required for secure session management.")
 
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
     if not ADMIN_PASSWORD:
@@ -56,6 +56,8 @@ class Settings:
         CORS_ALLOW_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000"]
     else:
         CORS_ALLOW_ORIGINS = []
+    if ENVIRONMENT.lower() == "production" and not CORS_ALLOW_ORIGINS:
+        raise ValueError("CORS_ALLOW_ORIGINS environment variable is required in production.")
 
     # Feature flags
     ALLOW_SELF_SIGNED_CERTS = os.getenv("ALLOW_SELF_SIGNED_CERTS", "false").lower() == "true"
