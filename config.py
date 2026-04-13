@@ -13,6 +13,10 @@ load_dotenv()
 class Settings:
     """Application settings loaded from environment variables"""
 
+    # Application
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+    DEBUG = os.getenv("DEBUG", "true").lower() == "true"
+
     # Database
     DATABASE_URL = os.getenv(
         "DATABASE_URL",
@@ -29,18 +33,29 @@ class Settings:
 
     SECRET_KEY = os.getenv(
         "SECRET_KEY",
-        "dev-secret-key-change-in-production"
+        ""
     )
+    if not SECRET_KEY:
+        raise ValueError("SECRET_KEY environment variable is required.")
 
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Fiko070House!")
-
-    # Application
-    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-    DEBUG = os.getenv("DEBUG", "true").lower() == "true"
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+    if not ADMIN_PASSWORD:
+        raise ValueError("ADMIN_PASSWORD environment variable is required.")
+    if len(ADMIN_PASSWORD) < 12:
+        raise ValueError("ADMIN_PASSWORD must be at least 12 characters.")
 
     # Server
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", "8000"))
+
+    # CORS
+    _cors_origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if _cors_origins_raw:
+        CORS_ALLOW_ORIGINS = [origin.strip() for origin in _cors_origins_raw.split(",") if origin.strip()]
+    elif ENVIRONMENT.lower() == "development":
+        CORS_ALLOW_ORIGINS = ["http://localhost:8000", "http://127.0.0.1:8000"]
+    else:
+        CORS_ALLOW_ORIGINS = []
 
     # Feature flags
     ALLOW_SELF_SIGNED_CERTS = os.getenv("ALLOW_SELF_SIGNED_CERTS", "false").lower() == "true"

@@ -45,10 +45,11 @@ cp .env.example .env
 |---|---|---|
 | `DATABASE_URL` | SQLAlchemy database URL | `sqlite:///./fikohouse.db` |
 | `FERNET_KEY` | Fernet encryption key for app passwords | *(required)* |
-| `SECRET_KEY` | Secret key for session management | `dev-secret-key-change-in-production` |
+| `SECRET_KEY` | Secret key for session management | *(required)* |
 | `ADMIN_PASSWORD` | Admin panel password | *(required — set a strong password)* |
 | `ENVIRONMENT` | `development` or `production` | `development` |
 | `DEBUG` | Enable debug logging | `true` |
+| `CORS_ALLOW_ORIGINS` | Comma-separated allowed CORS origins | `http://localhost:8000,http://127.0.0.1:8000` (development only) |
 | `HOST` | Bind address | `0.0.0.0` |
 | `PORT` | Bind port | `8000` |
 
@@ -104,7 +105,7 @@ From the admin dashboard you can:
 
 - Change the default `ADMIN_PASSWORD` before deploying to production.
 - Generate a strong `FERNET_KEY` and `SECRET_KEY` for production.
-- Restrict `allow_origins` in the CORS middleware to your own domain in production.
+- Set `CORS_ALLOW_ORIGINS` to your own trusted domain(s) in production.
 - Use PostgreSQL instead of SQLite in production for reliability and concurrency.
 
 ## Health Check
