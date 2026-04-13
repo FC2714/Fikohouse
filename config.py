@@ -32,7 +32,12 @@ class Settings:
         "dev-secret-key-change-in-production"
     )
 
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Fiko070House!")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+    if not ADMIN_PASSWORD or ADMIN_PASSWORD == "your-strong-admin-password-here":
+        raise ValueError(
+            "ADMIN_PASSWORD environment variable is not set or invalid. "
+            "Set a strong, unique admin password in your environment."
+        )
 
     # Application
     ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
