@@ -12,8 +12,9 @@ from datetime import datetime, timedelta, timezone
 import secrets
 import logging
 import html
+import time
 from threading import Lock
-from typing import Set
+from typing import Dict
 
 from models import SessionLocal, ManagedEmail, Subject
 from translations import get_t, validate_lang, language_selector_html, language_selector_html_post
@@ -36,19 +37,30 @@ except Exception as e:
 
 app = FastAPI(title="FikoHouse")
 
-# In-memory store for valid admin session tokens.
+# In-memory store mapping admin session token → expiry timestamp (unix time).
 # NOTE: Sessions are lost on application restart and are not shared across
 # multiple instances. For multi-instance deployments use a shared store such
 # as Redis or a database-backed session table.
-_admin_sessions: Set[str] = set()
+# NOTE: Tokens expire after SESSION_TTL seconds both server-side and via the
+# browser cookie. Tokens whose cookie max_age has elapsed but whose entry
+# remains in this dict are also rejected because expiry is checked explicitly.
+SESSION_TTL = 86400  # 24 hours in seconds
+_admin_sessions: Dict[str, float] = {}  # token -> expiry timestamp
 _admin_sessions_lock = Lock()
 
 
 def _is_valid_admin_session(request: Request) -> bool:
-    """Return True only if the request carries a recognised admin session token."""
+    """Return True only if the request carries a recognised, non-expired admin session token."""
     token = request.cookies.get("admin_session", "")
+    if not token:
+        return False
+    now = time.time()
     with _admin_sessions_lock:
-        return bool(token) and token in _admin_sessions
+        expiry = _admin_sessions.get(token)
+        if expiry is None or now > expiry:
+            _admin_sessions.pop(token, None)
+            return False
+        return True
 
 # Add CORS middleware for security
 app.add_middleware(
@@ -410,9 +422,9 @@ async def admin_login(username: str = Form(...), password: str = Form(...), lang
     if username == "admin" and password == settings.ADMIN_PASSWORD:
         token = secrets.token_hex(32)
         with _admin_sessions_lock:
-            _admin_sessions.add(token)
+            _admin_sessions[token] = time.time() + SESSION_TTL
         response = RedirectResponse(url=f"/admin/dashboard?lang={lang}", status_code=302)
-        response.set_cookie(key="admin_session", value=token, max_age=86400, httponly=True, samesite="strict")
+        response.set_cookie(key="admin_session", value=token, max_age=SESSION_TTL, httponly=True, samesite="strict")
         return response
 
     return f"""
@@ -687,7 +699,7 @@ async def logout(request: Request, lang: str = 'en'):
     lang = validate_lang(lang)
     token = request.cookies.get("admin_session", "")
     with _admin_sessions_lock:
-        _admin_sessions.discard(token)
+        _admin_sessions.pop(token, None)
     response = RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
     response.delete_cookie(key="admin_session", httponly=True, samesite="strict")
     return response
