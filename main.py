@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, Depends, Response
+from fastapi import FastAPI, Request, Form, Depends, Response, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ import html
 import time
 from threading import Lock
 from typing import Dict
+from urllib.parse import urlparse
 
 from models import SessionLocal, ManagedEmail, Subject
 from translations import get_t, validate_lang, language_selector_html, language_selector_html_post
@@ -46,6 +47,7 @@ app = FastAPI(title="FikoHouse")
 # remains in this dict are also rejected because expiry is checked explicitly.
 SESSION_TTL = 86400  # 24 hours in seconds
 _admin_sessions: Dict[str, float] = {}  # token -> expiry timestamp
+_admin_csrf_tokens: Dict[str, str] = {}  # session_token -> csrf_token
 _admin_sessions_lock = Lock()
 
 
@@ -59,13 +61,41 @@ def _is_valid_admin_session(request: Request) -> bool:
         expiry = _admin_sessions.get(token)
         if expiry is None or now > expiry:
             _admin_sessions.pop(token, None)
+            _admin_csrf_tokens.pop(token, None)
             return False
         return True
+
+
+def _get_admin_csrf_token(request: Request) -> str:
+    token = request.cookies.get("admin_session", "")
+    if not token:
+        return ""
+    with _admin_sessions_lock:
+        return _admin_csrf_tokens.get(token, "")
+
+
+def _validate_admin_csrf(request: Request, submitted_token: str) -> bool:
+    expected = _get_admin_csrf_token(request)
+    return bool(expected and submitted_token and secrets.compare_digest(expected, submitted_token))
+
+
+def _is_allowed_netflix_link(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme != "https":
+            return False
+        host = (parsed.hostname or "").strip().lower()
+        if not host:
+            return False
+        ascii_host = host.encode("idna").decode("ascii")
+        return ascii_host == "netflix.com" or ascii_host.endswith(".netflix.com")
+    except Exception:
+        return False
 
 # Add CORS middleware for security
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to your domain
+    allow_origins=settings.CORS_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,7 +117,7 @@ async def health_check():
 # ===================== PUBLIC HOMEPAGE =====================
 @app.get("/", response_class=HTMLResponse)
 async def home(lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     return f"""
@@ -131,7 +161,7 @@ async def home(lang: str = 'en'):
 # ===================== FIXED MAIL FETCHING =====================
 @app.post("/load-mails", response_class=HTMLResponse)
 async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     managed = db.query(ManagedEmail).filter(ManagedEmail.email_address == email_input.strip()).first()
@@ -261,7 +291,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             confirm_link = None
             for a in soup.find_all("a", href=True):
                 href_lower = a["href"].lower()
-                if "netflix.com" in href_lower:
+                if _is_allowed_netflix_link(a["href"]):
                     # Look for various Netflix verification/confirmation patterns
                     if any(keyword in href_lower for keyword in ["household", "confirm", "verify", "activate", "code", "validate"]):
                         confirm_link = a["href"]
@@ -270,11 +300,16 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
             # If no specific keywords found, accept any netflix.com link as fallback
             if not confirm_link:
                 for a in soup.find_all("a", href=True):
-                    if "netflix.com" in a["href"].lower():
+                    if _is_allowed_netflix_link(a["href"]):
                         confirm_link = a["href"]
                         break
 
-            link_html = f'<a href="{confirm_link}" target="_blank" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>' if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
+            if confirm_link and not _is_allowed_netflix_link(confirm_link):
+                confirm_link = None
+            link_html = (
+                f'<a href="{html.escape(confirm_link, quote=True)}" target="_blank" rel="noopener noreferrer" class="inline-block bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-2xl text-sm font-semibold">{t("load_mails_confirm")}</a>'
+                if confirm_link else f'<span class="text-amber-400 text-sm">{t("load_mails_no_link")}</span>'
+            )
 
             # Store UTC timestamp for JavaScript to convert to user's local timezone
             date_str = msg.get("Date", "")
@@ -388,7 +423,7 @@ async def load_mails(email_input: str = Form(...), lang: str = Form('en'), db: S
 # ===================== FULL ADMIN DASHBOARD =====================
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     return f"""
@@ -415,16 +450,25 @@ async def admin_page(lang: str = 'en'):
     """
 
 @app.post("/admin/login", response_class=HTMLResponse)
-async def admin_login(username: str = Form(...), password: str = Form(...), lang: str = Form('en')):
-    lang = validate_lang(lang)
+async def admin_login(request: Request, username: str = Form(...), password: str = Form(...), lang: str = Form('en')):
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     if username == "admin" and password == settings.ADMIN_PASSWORD:
         token = secrets.token_hex(32)
+        csrf_token = secrets.token_urlsafe(32)
         with _admin_sessions_lock:
             _admin_sessions[token] = time.time() + SESSION_TTL
-        response = RedirectResponse(url=f"/admin/dashboard?lang={lang}", status_code=302)
-        response.set_cookie(key="admin_session", value=token, max_age=SESSION_TTL, httponly=True, samesite="strict")
+            _admin_csrf_tokens[token] = csrf_token
+        response = RedirectResponse(url="/admin/dashboard", status_code=302)
+        response.set_cookie(
+            key="admin_session",
+            value=token,
+            max_age=SESSION_TTL,
+            httponly=True,
+            samesite="strict",
+            secure=settings.is_production,
+        )
         return response
 
     return f"""
@@ -450,7 +494,7 @@ async def admin_login(username: str = Form(...), password: str = Form(...), lang
 
 @app.get("/admin/dashboard", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check if admin is logged in
@@ -479,6 +523,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
 
     emails = db.query(ManagedEmail).all()
     subjects = db.query(Subject).all()
+    csrf_token = _get_admin_csrf_token(request)
 
     email_list = "".join([f"""
     <div class="flex justify-between items-center bg-gray-800 p-4 rounded-2xl mb-3">
@@ -487,6 +532,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
             <span class="text-xs text-gray-500">{e.imap_server}</span>
         </div>
         <form method="post" action="/admin/delete-email/{e.id}?lang={lang}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="lang" value="{lang}">
             <button type="submit" class="text-red-500 hover:text-red-600 text-sm">{t('admin_delete')}</button>
         </form>
@@ -496,6 +542,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
     <div class="flex justify-between items-center bg-gray-800 p-4 rounded-2xl mb-3">
         <div><span class="text-emerald-400">{s.language}</span>: "{s.subject_text}"</div>
         <form method="post" action="/admin/delete-subject/{s.id}?lang={lang}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{csrf_token}">
             <input type="hidden" name="lang" value="{lang}">
             <button type="submit" class="text-red-500 hover:text-red-600 text-sm">{t('admin_delete')}</button>
         </form>
@@ -525,6 +572,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
                             <option value="outlook.office365.com">{t('admin_outlook')}</option>
                         </select>
                         <input type="password" name="app_password" placeholder="{t('admin_app_password')}" class="w-full bg-gray-800 border border-gray-700 rounded-2xl px-5 py-4" required>
+                        <input type="hidden" name="csrf_token" value="{csrf_token}">
                         <input type="hidden" name="lang" value="{lang}">
                         <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 py-4 rounded-2xl text-lg">{t('admin_add_email_button')}</button>
                     </form>
@@ -534,6 +582,7 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
                     <form method="post" action="/admin/add-subject?lang={lang}" class="space-y-4">
                         <input type="text" name="language" placeholder="{t('admin_language')}" class="w-full bg-gray-800 border border-gray-700 rounded-2xl px-5 py-4" required>
                         <input type="text" name="subject_text" placeholder="{t('admin_subject_text')}" class="w-full bg-gray-800 border border-gray-700 rounded-2xl px-5 py-4" required>
+                        <input type="hidden" name="csrf_token" value="{csrf_token}">
                         <input type="hidden" name="lang" value="{lang}">
                         <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 py-4 rounded-2xl text-lg">{t('admin_add_subject_button')}</button>
                     </form>
@@ -556,13 +605,15 @@ async def admin_dashboard(request: Request, lang: str = 'en', db: Session = Depe
 
 # Add & Delete routes
 @app.post("/admin/add-email", response_class=HTMLResponse)
-async def add_email(request: Request, email_address: str = Form(...), imap_server: str = Form(...), app_password: str = Form(...), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+async def add_email(request: Request, email_address: str = Form(...), imap_server: str = Form(...), app_password: str = Form(...), csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
+    if not _validate_admin_csrf(request, csrf_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     try:
         encrypted = fernet.encrypt(app_password.encode()).decode()
@@ -604,13 +655,15 @@ async def add_email(request: Request, email_address: str = Form(...), imap_serve
         """
 
 @app.post("/admin/add-subject", response_class=HTMLResponse)
-async def add_subject(request: Request, language: str = Form(...), subject_text: str = Form(...), lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+async def add_subject(request: Request, language: str = Form(...), subject_text: str = Form(...), csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
+    if not _validate_admin_csrf(request, csrf_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     new_subject = Subject(language=language, subject_text=subject_text)
     db.add(new_subject)
@@ -633,13 +686,15 @@ async def add_subject(request: Request, language: str = Form(...), subject_text:
     """
 
 @app.post("/admin/delete-email/{email_id}", response_class=HTMLResponse)
-async def delete_email(request: Request, email_id: int, lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+async def delete_email(request: Request, email_id: int, csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
+    if not _validate_admin_csrf(request, csrf_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     email = db.query(ManagedEmail).filter(ManagedEmail.id == email_id).first()
     if email:
@@ -664,13 +719,15 @@ async def delete_email(request: Request, email_id: int, lang: str = Form('en'), 
     """
 
 @app.post("/admin/delete-subject/{subject_id}", response_class=HTMLResponse)
-async def delete_subject(request: Request, subject_id: int, lang: str = Form('en'), db: Session = Depends(get_db)):
-    lang = validate_lang(lang)
+async def delete_subject(request: Request, subject_id: int, csrf_token: str = Form(''), lang: str = Form('en'), db: Session = Depends(get_db)):
+    lang = html.escape(validate_lang(lang), quote=True)
     t = get_t(lang)
 
     # Check authentication
     if not _is_valid_admin_session(request):
-        return RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
+        return RedirectResponse(url="/admin", status_code=302)
+    if not _validate_admin_csrf(request, csrf_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if subject:
@@ -696,12 +753,13 @@ async def delete_subject(request: Request, subject_id: int, lang: str = Form('en
 
 @app.get("/admin/logout")
 async def logout(request: Request, lang: str = 'en'):
-    lang = validate_lang(lang)
+    lang = html.escape(validate_lang(lang), quote=True)
     token = request.cookies.get("admin_session", "")
     with _admin_sessions_lock:
         _admin_sessions.pop(token, None)
-    response = RedirectResponse(url=f"/admin?lang={lang}", status_code=302)
-    response.delete_cookie(key="admin_session", httponly=True, samesite="strict")
+        _admin_csrf_tokens.pop(token, None)
+    response = RedirectResponse(url="/admin", status_code=302)
+    response.delete_cookie(key="admin_session", httponly=True, samesite="strict", secure=settings.is_production)
     return response
 
 if __name__ == "__main__":
